@@ -27,7 +27,7 @@ export class DuckDBAdapter implements IAnalysisEngine {
 
         // 挂载 SQLite 数据库 (只读模式，避免锁冲突)
         await this.db.run(
-            `CALL sqlite_attach('${sqlitePath}', alias => 'storage', read_only => true)`
+            `CALL sqlite_attach('${sqlitePath}')`
         );
 
         this.connected = true;

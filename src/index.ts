@@ -1,51 +1,17 @@
+
 /**
- * ACE Engine Core - 主导出文件
+ * ACE Engine Core - Main Entry Point
  * @version 1.0.0
  */
 
-// 主类
-export { AceAgent, AceAgentConfig } from './agent';
+export { AceEngine } from './ace_engine';
+export * from './types';
+export { BusManager } from './core/bus';
 
-// 核心组件
-export { Generator, GeneratorConfig } from './core/generator';
-export { Reflector, ReflectorConfig } from './core/reflector';
-export { Curator, CuratorConfig } from './core/curator';
-
-// 类型定义
-export {
-    Rule,
-    Trajectory,
-    TaskStep,
-    Delta,
-    DeltaLog,
-    Insight,
-    BaseLLM,
-} from './types';
-
-// 接口定义
-export {
-    IVectorStore,
-    ITrajectoryStore,
-    IAnalysisEngine,
-} from './interfaces/store';
-
-// 适配器
-export { SQLiteAdapter } from './adapters/sqlite-adapter';
-export { DuckDBAdapter } from './adapters/duckdb-adapter';
-export { ChromaAdapter } from './adapters/chroma-adapter';
-
-// Schema
-export {
-    GeneratorOutputSchema,
-    ReflectorOutputSchema,
-    CuratorOutputSchema,
-} from './utils/schemas';
-
-// 工具函数
-export {
-    generateId,
-    extractJSON,
-    safeParseJSON,
-    delay,
-    retry,
-} from './utils/helpers';
+// Export Layers for extension if needed
+export { AspirationalLayer } from './layers/aspirational';
+export { GlobalStrategyLayer } from './layers/global_strategy';
+export { AgentModelLayer } from './layers/agent_model';
+export { ExecutiveFunctionLayer } from './layers/executive_function';
+export { CognitiveControlLayer } from './layers/cognitive_control';
+export { TaskProsecutionLayer } from './layers/task_prosecution';

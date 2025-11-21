@@ -1,7 +1,114 @@
+
 /**
- * ACE Engine Core - 核心类型定义
- * @version 1.0.0
+ * ACE Engine Core - Type Definitions
+ * Based on the Ultimate Detailed Design
  */
+
+import { z } from 'zod';
+
+// --- Enums ---
+
+export enum AceLayerID {
+    ASPIRATIONAL = 'ASPIRATIONAL',
+    GLOBAL_STRATEGY = 'GLOBAL_STRATEGY',
+    AGENT_MODEL = 'AGENT_MODEL',
+    EXECUTIVE_FUNCTION = 'EXECUTIVE_FUNCTION',
+    COGNITIVE_CONTROL = 'COGNITIVE_CONTROL',
+    TASK_PROSECUTION = 'TASK_PROSECUTION',
+}
+
+export enum SouthboundType {
+    IMPERATIVE = 'IMPERATIVE',
+    STRATEGY = 'STRATEGY',
+    PLAN = 'PLAN',
+    INSTRUCTION = 'INSTRUCTION',
+    CONTROL = 'CONTROL',
+    VETO = 'VETO',
+}
+
+export enum NorthboundType {
+    OBSERVATION = 'OBSERVATION',
+    RESULT = 'RESULT',
+    STATUS = 'STATUS',
+    FAILURE = 'FAILURE',
+    EPIPHANY = 'EPIPHANY',
+    FRUSTRATION_SIGNAL = 'FRUSTRATION_SIGNAL',
+}
+
+// --- Interfaces ---
+
+export interface SouthboundPacket {
+    id: string;               // UUID
+    timestamp: number;        // Unix Timestamp
+    traceId: string;          // Trace ID
+
+    sourceLayer: AceLayerID;
+    targetLayer: AceLayerID;
+
+    type: SouthboundType;
+
+    content: string;          // Natural language instruction
+
+    parameters?: Record<string, any>; // Structured parameters
+}
+
+export interface NorthboundPacket {
+    id: string;
+    timestamp: number;
+    traceId: string;
+
+    sourceLayer: AceLayerID;
+    targetLayer: AceLayerID;
+
+    type: NorthboundType;
+
+    summary: string;          // Natural language summary
+
+    data?: any;               // Raw data payload
+}
+
+// --- Configuration ---
+
+export interface AceStorageConfig {
+    mode: 'composite';
+    sqlitePath: string;
+    duckdbPath: string;
+}
+
+export interface AceCacheConfig {
+    type: 'redis' | 'memory';
+    redisUrl?: string;
+}
+
+export interface AceMemoryConfig {
+    provider: 'chroma';
+    endpoint: string;
+    collectionPrefix: string;
+}
+
+export interface AceLLMConfig {
+    driver: any; // Replace with specific LLM driver interface
+    modelMap: Record<string, string>;
+}
+
+export interface AceEngineConfig {
+    agentId: string;
+    storage: AceStorageConfig;
+    cache: AceCacheConfig;
+    memory: AceMemoryConfig;
+    llm: AceLLMConfig;
+}
+
+// --- Tool Registry ---
+
+export interface AceTool {
+    name: string;
+    description: string;
+    execute: (params: any) => Promise<any>;
+    schema: z.ZodType<any>; // Zod schema
+}
+
+// --- Legacy Types (Generator/Reflector/Curator) ---
 
 /**
  * 战术手册中的单条规则 (The Atom of Memory)
