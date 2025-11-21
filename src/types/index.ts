@@ -31,8 +31,10 @@ export enum NorthboundType {
     RESULT = 'RESULT',
     STATUS = 'STATUS',
     FAILURE = 'FAILURE',
+    CRITICAL_FAILURE = 'CRITICAL_FAILURE',
     EPIPHANY = 'EPIPHANY',
     FRUSTRATION_SIGNAL = 'FRUSTRATION_SIGNAL',
+    CAPABILITY_ERROR = 'CAPABILITY_ERROR',
 }
 
 // --- Interfaces ---
@@ -77,7 +79,7 @@ export interface AceStorageConfig {
 
 export interface AceCacheConfig {
     type: 'redis' | 'memory';
-    redisUrl?: string;
+    redisUrl?: string; // Required when type === 'redis', optional when type === 'memory'
 }
 
 export interface AceMemoryConfig {
@@ -87,8 +89,17 @@ export interface AceMemoryConfig {
 }
 
 export interface AceLLMConfig {
-    driver: any; // Replace with specific LLM driver interface
-    modelMap: Record<string, string>;
+    driver: BaseLLM;
+    modelMap?: Record<string, string>; // Optional: if not provided, all layers use default driver
+}
+
+export interface AceSchedulerConfig {
+    heartbeatIntervalMs?: number; // Default: 1000ms
+    reflectionIntervalMs?: number; // Default: 5 minutes
+}
+
+export interface AceContextWindowConfig {
+    maxLength?: number; // Default: 10
 }
 
 export interface AceEngineConfig {
@@ -97,6 +108,8 @@ export interface AceEngineConfig {
     cache: AceCacheConfig;
     memory: AceMemoryConfig;
     llm: AceLLMConfig;
+    scheduler?: AceSchedulerConfig; // Optional scheduler configuration
+    contextWindow?: AceContextWindowConfig; // Optional context window configuration
 }
 
 // --- Tool Registry ---

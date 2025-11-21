@@ -8,6 +8,7 @@ import {
     SouthboundType,
     NorthboundType
 } from '../types';
+import { SecurityError } from '../utils/errors';
 
 // Zod Schemas for Validation
 export const SouthboundSchema = z.object({
@@ -40,40 +41,58 @@ export enum BusDirection {
     SOUTHBOUND = 'SOUTHBOUND',
 }
 
-export class SecurityOverlay {
-    private static PROHIBITED_COMMANDS = [
+class SecurityOverlay {
+    private static readonly PROHIBITED_COMMANDS = [
         'rm -rf', 'mkfs', 'dd if=/dev/zero', ':(){:|:&};:', 'wget', 'curl', 'chmod 777'
     ];
 
-    static async monitorSouthbound(packet: SouthboundPacket, next: () => Promise<void>) {
+    private seenPacketIds = new Set<string>();
+    private static readonly MAX_TRACKED_IDS = 1000;
+
+    async monitorSouthbound(packet: SouthboundPacket, next: () => Promise<void>) {
         // 1. Check for prohibited commands
         for (const cmd of SecurityOverlay.PROHIBITED_COMMANDS) {
             if (packet.content.includes(cmd)) {
-                throw new Error(`Security Violation: Prohibited command detected: ${cmd}`);
+                throw new SecurityError(`Prohibited command detected: ${cmd}`);
             }
         }
 
-        // 2. Check for circular dependency (simple ID check for now, can be expanded)
-        // In a real scenario, we might check a trace history in the packet if available
+        // 2. Check for circular dependency / Dead Loop
+        // We track recent packet IDs to prevent processing the same packet multiple times
+        // This prevents infinite loops where the same instruction is repeatedly sent
+        if (this.seenPacketIds.has(packet.id)) {
+            const error = new SecurityError(`Circular dependency or duplicate packet detected: ${packet.id}`);
+            console.error('[SecurityOverlay]', error.message);
+            throw error;
+        }
+        this.seenPacketIds.add(packet.id);
+
+        // Cleanup old IDs to prevent memory leak
+        // Use LRU-style eviction: when we exceed the limit, remove oldest entries
+        if (this.seenPacketIds.size > SecurityOverlay.MAX_TRACKED_IDS) {
+            // Remove the oldest 10% of entries
+            const idsToRemove = Array.from(this.seenPacketIds).slice(0, Math.floor(SecurityOverlay.MAX_TRACKED_IDS * 0.1));
+            idsToRemove.forEach(id => this.seenPacketIds.delete(id));
+        }
 
         await next();
     }
 
-    static async monitorNorthbound(packet: NorthboundPacket, next: () => Promise<void>) {
+    async monitorNorthbound(packet: NorthboundPacket, next: () => Promise<void>) {
         // 1. Data Redaction (Simple example)
         if (packet.data && typeof packet.data === 'object') {
-            SecurityOverlay.redactObject(packet.data);
+            this.redactObject(packet.data);
         }
         await next();
     }
 
-    private static redactObject(obj: any) {
+    private redactObject(obj: any) {
         const SENSITIVE_KEYS = ['apikey', 'password', 'token', 'secret'];
         for (const key in obj) {
             if (SENSITIVE_KEYS.some(k => key.toLowerCase().includes(k))) {
                 obj[key] = '[REDACTED]';
             } else if (typeof obj[key] === 'object' && obj[key] !== null) {
-                SecurityOverlay.redactObject(obj[key]);
+                this.redactObject(obj[key]);
             }
         }
     }
@@ -85,14 +104,18 @@ export class BusManager {
 
     private sbMiddlewares: BusMiddleware<SouthboundPacket>[] = [];
     private nbMiddlewares: BusMiddleware<NorthboundPacket>[] = [];
+    private storage?: { duckdb?: { logDirective: (packet: SouthboundPacket) => Promise<void>; logTelemetry: (packet: NorthboundPacket) => Promise<void> } };
+    private securityOverlay: SecurityOverlay;
 
-    constructor() {
+    constructor(storage?: { duckdb?: { logDirective: (packet: SouthboundPacket) => Promise<void>; logTelemetry: (packet: NorthboundPacket) => Promise<void> } }) {
         this.northbound = new EventEmitter();
         this.southbound = new EventEmitter();
+        this.storage = storage;
+        this.securityOverlay = new SecurityOverlay();
 
-        // Register Security Overlay by default
-        this.use(BusDirection.SOUTHBOUND, SecurityOverlay.monitorSouthbound);
-        this.use(BusDirection.NORTHBOUND, SecurityOverlay.monitorNorthbound);
+        // Register Security Overlay by default as instance methods
+        this.use(BusDirection.SOUTHBOUND, (packet, next) => this.securityOverlay.monitorSouthbound(packet, next));
+        this.use(BusDirection.NORTHBOUND, (packet, next) => this.securityOverlay.monitorNorthbound(packet, next));
     }
 
     use(direction: BusDirection, middleware: BusMiddleware<any>) {
@@ -116,7 +139,16 @@ export class BusManager {
         };
         await next();
 
-        // 3. Emit
+        // 3. Internal Logging (after middleware, before event dispatch)
+        if (this.storage?.duckdb) {
+            try {
+                await this.storage.duckdb.logDirective(packet);
+            } catch (error) {
+                console.error('[BusManager] Failed to log directive:', error);
+            }
+        }
+
+        // 4. Emit
         this.southbound.emit(packet.targetLayer, packet);
     }
 
@@ -133,7 +165,16 @@ export class BusManager {
         };
         await next();
 
-        // 3. Emit
+        // 3. Internal Logging (after middleware, before event dispatch)
+        if (this.storage?.duckdb) {
+            try {
+                await this.storage.duckdb.logTelemetry(packet);
+            } catch (error) {
+                console.error('[BusManager] Failed to log telemetry:', error);
+            }
+        }
+
+        // 4. Emit
         this.northbound.emit(packet.targetLayer, packet);
     }
 }

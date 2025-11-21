@@ -7,10 +7,13 @@ export class CognitiveScheduler {
     private bus: BusManager;
     private intervalId: NodeJS.Timeout | null = null;
     private intervalMs: number;
+    private lastReflectionTime: number = 0;
+    private reflectionIntervalMs: number;
 
-    constructor(bus: BusManager, intervalMs: number = 1000) {
+    constructor(bus: BusManager, intervalMs: number = 1000, reflectionIntervalMs?: number) {
         this.bus = bus;
         this.intervalMs = intervalMs;
+        this.reflectionIntervalMs = reflectionIntervalMs ?? 5 * 60 * 1000; // Default: 5 minutes
     }
 
     start() {
@@ -28,27 +31,44 @@ export class CognitiveScheduler {
     }
 
     private async tick() {
-        // Emit Heartbeat / Control Signal
-        // In a full implementation, this might trigger specific layers based on state.
-        // For now, we emit a generic control signal to keep the loop alive or trigger reflection.
+        const now = Date.now();
 
-        // Example: Trigger Reflection in Global Strategy every N ticks?
-        // Or just a heartbeat that layers can listen to if needed.
-
-        // For now, let's just log a heartbeat to the bus (maybe as a special packet or just internal log)
-        // But the requirement says "Heartbeat & Reflection Cycle".
-
-        // Let's simulate a "Reflection Opportunity"
-        // We can send a CONTROL packet to Global Strategy or Aspirational to "Reflect"
-
+        // 1. Heartbeat (Every tick/second)
+        // Emitting a heartbeat to keep the system alive and trigger Cognitive Control checks
         await this.bus.publishSouthbound({
             id: crypto.randomUUID(),
-            timestamp: Date.now(),
+            timestamp: now,
             traceId: crypto.randomUUID(),
-            sourceLayer: AceLayerID.ASPIRATIONAL, // Pretend it comes from "Self"
-            targetLayer: AceLayerID.GLOBAL_STRATEGY,
+            sourceLayer: AceLayerID.ASPIRATIONAL, // System-level trigger
+            targetLayer: AceLayerID.COGNITIVE_CONTROL,
             type: SouthboundType.CONTROL,
-            content: 'HEARTBEAT_REFLECTION',
+            content: 'HEARTBEAT',
+            parameters: {
+                timestamp: now,
+                cycleType: 'heartbeat'
+            }
         });
+
+        // 2. Reflection Cycle (Every 5 minutes)
+        if (now - this.lastReflectionTime >= this.reflectionIntervalMs) {
+            console.log('[CognitiveScheduler] Triggering Reflection Cycle');
+            this.lastReflectionTime = now;
+
+            // Reflection cycle is triggered by the system itself, not by any specific layer
+            // Using ASPIRATIONAL as the source represents the highest-level system authority
+            await this.bus.publishSouthbound({
+                id: crypto.randomUUID(),
+                timestamp: now,
+                traceId: crypto.randomUUID(),
+                sourceLayer: AceLayerID.ASPIRATIONAL, // System-level trigger from highest authority
+                targetLayer: AceLayerID.GLOBAL_STRATEGY,
+                type: SouthboundType.CONTROL,
+                content: 'REFLECTION_CYCLE_START',
+                parameters: {
+                    reason: 'Periodic self-assessment',
+                    cycleType: 'reflection'
+                }
+            });
+        }
     }
 }

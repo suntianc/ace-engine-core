@@ -16,7 +16,21 @@ export class TaskProsecutionLayer extends BaseLayer {
     }
 
     async handleSouthbound(packet: SouthboundPacket) {
-        if (packet.targetLayer === this.id && (packet.type === SouthboundType.CONTROL || packet.type === SouthboundType.INSTRUCTION)) {
+        // Acquire layer lock for concurrent safety
+        const lockAcquired = await this.storage.memory.acquireLayerLock(this.id);
+        if (!lockAcquired) {
+            console.warn(`[${this.id}] Layer is locked, queuing packet ${packet.id}`);
+            return;
+        }
+
+        try {
+            // Check for empty content
+            if (!packet.content || packet.content.trim() === '') {
+                console.warn(`[${this.id}] Received empty content, ignoring packet ${packet.id} (traceId: ${packet.traceId})`);
+                return;
+            }
+
+            if (packet.targetLayer === this.id && (packet.type === SouthboundType.CONTROL || packet.type === SouthboundType.INSTRUCTION)) {
             console.log(`[TaskProsecution] Processing Control: ${packet.content}`);
 
             const toolName = packet.parameters?.tool;
@@ -52,22 +66,65 @@ export class TaskProsecutionLayer extends BaseLayer {
                 await this.reportFailure(packet, `Tool execution failed: ${error.message}`);
             }
         }
+        } finally {
+            // Release lock
+            await this.storage.memory.releaseLayerLock(this.id);
+        }
     }
 
     async handleNorthbound(packet: NorthboundPacket) {
+        // Check for empty summary
+        if (!packet.summary || packet.summary.trim() === '') {
+            console.warn(`[${this.id}] Received empty summary, ignoring packet ${packet.id} (traceId: ${packet.traceId})`);
+            return;
+        }
+
         // Log telemetry
         await this.storage.duckdb.logTelemetry(packet);
     }
 
     private sandboxCheck(toolName: string, args: any): boolean {
-        // Basic sandbox: forbid 'rm -rf', 'eval', etc. if they were shell commands
-        // Here we just check against a whitelist or blacklist
-        const BLACKLIST = ['eval', 'exec', 'system'];
-        if (BLACKLIST.includes(toolName)) return false;
+        // 1. Check if tool exists
+        const tool = this.tools.get(toolName);
+        if (!tool) {
+            console.warn(`[TaskProsecution] Tool not found: ${toolName}`);
+            return false;
+        }
 
-        // Check args for suspicious patterns
+        // 2. Tool name blacklist check
+        const BLACKLIST = ['eval', 'exec', 'system'];
+        if (BLACKLIST.includes(toolName)) {
+            console.warn(`[TaskProsecution] Tool ${toolName} is blacklisted`);
+            return false;
+        }
+
+        // 3. Use Zod schema to validate parameters
+        try {
+            tool.schema.parse(args);
+        } catch (error) {
+            console.error(`[TaskProsecution] Schema validation failed for ${toolName}:`, error);
+            return false;
+        }
+
+        // 4. Check args content for suspicious patterns
         const argsStr = JSON.stringify(args);
-        if (argsStr.includes('rm -rf') || argsStr.includes('sudo')) return false;
+        const SUSPICIOUS_PATTERNS = [
+            'rm -rf',
+            'sudo',
+            'mkfs',
+            'dd if=/dev/zero',
+            ':(){:|:&};:',
+            'chmod 777',
+            'format',
+            'del /f'
+        ];
+        
+        for (const pattern of SUSPICIOUS_PATTERNS) {
+            if (argsStr.toLowerCase().includes(pattern.toLowerCase())) {
+                console.warn(`[TaskProsecution] Suspicious pattern detected in args for ${toolName}: ${pattern}`);
+                return false;
+            }
+        }
 
         return true;
     }
@@ -75,8 +132,7 @@ export class TaskProsecutionLayer extends BaseLayer {
     private async executeTool(toolName: string, args: any): Promise<any> {
         const tool = this.tools.get(toolName);
         if (tool) {
-            // Validate args against schema
-            tool.schema.parse(args);
+            // Schema validation already done in sandboxCheck
             return await tool.execute(args);
         }
 

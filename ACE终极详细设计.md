@@ -262,10 +262,18 @@ await engine.start();
 ### 5.2 扩展性设计：中间件
 为了增加灵活性，SDK 允许开发者拦截总线消息。TypeScript
 // 添加一个日志中间件
-engine.bus.use('southbound', async (packet, next) => {
-  console.log(` ${packet.sourceLayer} -> ${packet.targetLayer}: ${packet.content}`);
+// 注意：使用 BusDirection 枚举确保类型安全，而不是字符串字面量
+import { BusDirection } from 'ace-engine-core';
+
+engine.bus.use(BusDirection.SOUTHBOUND, async (packet, next) => {
+  console.log(`${packet.sourceLayer} -> ${packet.targetLayer}: ${packet.content}`);
   await next();
 });
+
+// 类型安全的优势：
+// - TypeScript 会在编译时检查方向参数
+// - IDE 可以提供自动补全
+// - 避免拼写错误（如 'southbound' vs 'SOUTHBOUND'）
 
 ## 6. 运营动力学与安全性 (Operational Dynamics & Security)
 ### 6.1 认知循环 (The Cognitive Cycle)
