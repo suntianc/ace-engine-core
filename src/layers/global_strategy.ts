@@ -199,9 +199,10 @@ Output the strategy as a numbered list of milestones.
 
                 // Update goal progress based on recent activity
                 for (const goal of activeGoals) {
+                    const goalData = goal as { goal_id: string; description: string; progress: number; parent_strategy_id?: string; status: string };
                     // Simple progress calculation based on recent successful operations
                     const goalRelatedLogs = recentLogs.filter((log: any) => 
-                        log.summary && log.summary.toLowerCase().includes(goal.description.toLowerCase().substring(0, 20))
+                        log.summary && log.summary.toLowerCase().includes(goalData.description.toLowerCase().substring(0, 20))
                     );
                     const successCount = goalRelatedLogs.filter((log: any) => 
                         log.summary && (log.summary.includes('RESULT') || log.summary.includes('SUCCESS'))
@@ -209,7 +210,7 @@ Output the strategy as a numbered list of milestones.
                     const totalCount = goalRelatedLogs.length;
                     const progress = totalCount > 0 ? Math.min(successCount / totalCount, 1.0) : 0;
                     
-                    this.storage.sqlite.updateGoalProgress(goal.goal_id, progress);
+                    this.storage.sqlite.updateGoalProgress(goalData.goal_id, progress);
                 }
 
                 console.log('[GlobalStrategy] Reflection analysis:', {

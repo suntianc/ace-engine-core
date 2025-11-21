@@ -3,7 +3,7 @@ import { AceLayerID, SouthboundPacket, NorthboundPacket, BaseLLM, SouthboundType
 import { BusManager } from '../core/bus';
 import crypto from 'crypto';
 
-enum FocusState {
+export enum FocusState {
     IDLE = 'IDLE',
     EXECUTING = 'EXECUTING',
     BLOCKED = 'BLOCKED',
@@ -39,7 +39,6 @@ export class CognitiveControlLayer extends BaseLayer {
             console.log(`[CognitiveControl] Processing Instruction: ${packet.content} `);
 
             // Transition from IDLE or FRUSTRATED to EXECUTING
-            const previousState = this.state;
             this.failureCount = 0;
             this.setState(FocusState.EXECUTING, `Starting new task: ${packet.content}`);
 

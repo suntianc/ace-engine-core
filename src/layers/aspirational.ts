@@ -2,7 +2,6 @@ import { BaseLayer, AceStorages } from './base';
 import { AceLayerID, SouthboundPacket, NorthboundPacket, BaseLLM, SouthboundType, NorthboundType } from '../types';
 import { BusManager } from '../core/bus';
 import * as fs from 'fs';
-import * as path from 'path';
 
 export class AspirationalLayer extends BaseLayer {
 

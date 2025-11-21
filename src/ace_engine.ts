@@ -1,5 +1,5 @@
 import { AceEngineConfig, BaseLLM, AceLayerID } from './types';
-import { BusManager, BusDirection } from './core/bus';
+import { BusManager } from './core/bus';
 import { SQLiteStorage } from './storage/sqlite';
 import { DuckDBStorage } from './storage/duckdb';
 import { ChromaStorage } from './storage/chroma';
@@ -11,7 +11,7 @@ import { AspirationalLayer } from './layers/aspirational';
 import { GlobalStrategyLayer } from './layers/global_strategy';
 import { AgentModelLayer } from './layers/agent_model';
 import { ExecutiveFunctionLayer } from './layers/executive_function';
-import { CognitiveControlLayer } from './layers/cognitive_control';
+import { CognitiveControlLayer, FocusState } from './layers/cognitive_control';
 import { TaskProsecutionLayer } from './layers/task_prosecution';
 import { CognitiveScheduler } from './core/scheduler';
 
@@ -348,7 +348,7 @@ export class AceEngine {
      * Get the cognitive control layer state
      * @returns FocusState enum value or null if layer not found
      */
-    getCognitiveControlState() {
+    getCognitiveControlState(): FocusState | null {
         const layer = this.layers.find(l => l.id === AceLayerID.COGNITIVE_CONTROL) as CognitiveControlLayer;
         return layer?.getFocusState() || null;
     }
