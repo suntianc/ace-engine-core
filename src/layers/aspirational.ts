@@ -1,14 +1,15 @@
 import { BaseLayer, AceStorages } from './base';
 import { AceLayerID, SouthboundPacket, NorthboundPacket, BaseLLM, SouthboundType, NorthboundType } from '../types';
 import { BusManager } from '../core/bus';
+import { SessionManager } from '../types/session';
 import * as fs from 'fs';
 
 export class AspirationalLayer extends BaseLayer {
 
     private constitution: string = '';
 
-    constructor(bus: BusManager, storage: AceStorages, llm: BaseLLM) {
-        super(AceLayerID.ASPIRATIONAL, bus, storage, llm);
+    constructor(bus: BusManager, storage: AceStorages, llm: BaseLLM, sessionManager?: SessionManager) {
+        super(AceLayerID.ASPIRATIONAL, bus, storage, llm, sessionManager);
         this.loadConstitution();
     }
 
@@ -86,7 +87,7 @@ export class AspirationalLayer extends BaseLayer {
 
         if (packet.targetLayer === this.id) {
             // Process directive intended for AL
-            await this.storage.duckdb.logDirective(packet);
+            await this.storage.logs.logDirective(packet);
 
             // Forward to Global Strategy
             const forwardPacket: SouthboundPacket = {
@@ -110,7 +111,7 @@ export class AspirationalLayer extends BaseLayer {
         }
 
         // Log telemetry
-        await this.storage.duckdb.logTelemetry(packet);
+        await this.storage.logs.logTelemetry(packet);
 
         // Handle EPIPHANY signals
         if (packet.type === NorthboundType.EPIPHANY) {

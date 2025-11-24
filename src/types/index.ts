@@ -43,6 +43,7 @@ export interface SouthboundPacket {
     id: string;               // UUID
     timestamp: number;        // Unix Timestamp
     traceId: string;          // Trace ID
+    sessionId?: string;       // Optional session ID for session isolation
 
     sourceLayer: AceLayerID;
     targetLayer: AceLayerID;
@@ -58,6 +59,7 @@ export interface NorthboundPacket {
     id: string;
     timestamp: number;
     traceId: string;
+    sessionId?: string;       // Optional session ID for session isolation
 
     sourceLayer: AceLayerID;
     targetLayer: AceLayerID;
@@ -74,7 +76,7 @@ export interface NorthboundPacket {
 export interface AceStorageConfig {
     mode: 'composite';
     sqlitePath: string;
-    duckdbPath: string;
+    logsPath: string;  // SQLite 日志存储路径(telemetry & directives)
 }
 
 export interface AceCacheConfig {
@@ -95,7 +97,20 @@ export interface AceLLMConfig {
 
 export interface AceSchedulerConfig {
     heartbeatIntervalMs?: number; // Default: 1000ms
-    reflectionIntervalMs?: number; // Default: 5 minutes
+    // reflectionIntervalMs removed - reflection is now trigger-based, not periodic
+}
+
+export interface AceReflectionTriggerConfig {
+    predictionErrorThreshold?: number; // Default: 0.3
+    loopDetectionWindow?: number; // Default: 5
+    loopDetectionThreshold?: number; // Default: 0.8
+    stagnationTimeWindow?: number; // Default: 5 minutes
+    stagnationProgressThreshold?: number; // Default: 0.01
+    maxTokens?: number; // Default: 100000
+    maxSteps?: number; // Default: 100
+    maxTime?: number; // Default: 30 minutes
+    cooldownMs?: number; // Default: 30 seconds
+    contextWindowThreshold?: number; // Default: 0.8
 }
 
 export interface AceContextWindowConfig {
@@ -110,6 +125,7 @@ export interface AceEngineConfig {
     llm: AceLLMConfig;
     scheduler?: AceSchedulerConfig; // Optional scheduler configuration
     contextWindow?: AceContextWindowConfig; // Optional context window configuration
+    reflectionTrigger?: AceReflectionTriggerConfig; // Optional reflection trigger configuration
 }
 
 // --- Tool Registry ---
@@ -181,6 +197,9 @@ export interface TaskStep {
 export interface Trajectory {
     /** 任务唯一标识 */
     task_id: string;
+
+    /** 会话ID（可选，用于会话隔离） */
+    session_id?: string;
 
     /** 用户原始输入 */
     user_input: string;

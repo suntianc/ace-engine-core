@@ -1,6 +1,7 @@
 import { BaseLayer, AceStorages } from './base';
 import { AceLayerID, SouthboundPacket, NorthboundPacket, BaseLLM, SouthboundType, NorthboundType } from '../types';
 import { BusManager } from '../core/bus';
+import { SessionManager } from '../types/session';
 import crypto from 'crypto';
 
 export enum FocusState {
@@ -16,8 +17,8 @@ export class CognitiveControlLayer extends BaseLayer {
     private failureCount: number = 0;
     private state: FocusState = FocusState.IDLE;
 
-    constructor(bus: BusManager, storage: AceStorages, llm: BaseLLM) {
-        super(AceLayerID.COGNITIVE_CONTROL, bus, storage, llm);
+    constructor(bus: BusManager, storage: AceStorages, llm: BaseLLM, sessionManager?: SessionManager) {
+        super(AceLayerID.COGNITIVE_CONTROL, bus, storage, llm, sessionManager);
     }
 
     async handleSouthbound(packet: SouthboundPacket) {
@@ -67,10 +68,10 @@ export class CognitiveControlLayer extends BaseLayer {
         }
 
         // Log telemetry
-        await this.storage.duckdb.logTelemetry(packet);
+        await this.storage.logs.logTelemetry(packet);
 
         // Log Metrics - Schema: ts, layer, metric_name, value
-        await this.storage.duckdb.run(`
+        await this.storage.logs.run(`
             INSERT INTO metrics(ts, layer, metric_name, value) VALUES(?, ?, ?, ?)
     `, [new Date(), this.id, 'packet_throughput', 1]);
 
@@ -125,7 +126,7 @@ export class CognitiveControlLayer extends BaseLayer {
             // Log state transition to telemetry - Schema: ts, layer, metric_name, value
             (async () => {
                 try {
-                    await this.storage.duckdb.run(`
+                    await this.storage.logs.run(`
                         INSERT INTO metrics(ts, layer, metric_name, value) VALUES(?, ?, ?, ?)
                     `, [
                         new Date(),

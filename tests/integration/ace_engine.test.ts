@@ -13,7 +13,7 @@ const config: AceEngineConfig = {
     storage: {
         mode: 'composite',
         sqlitePath: ':memory:',
-        duckdbPath: ':memory:'
+        logsPath: ':memory:'
     },
     cache: {
         type: 'memory'
@@ -50,8 +50,6 @@ describe('AceEngine Integration', () => {
 
     test('should start and stop successfully', async () => {
         // Mock storage connections to avoid actual DB calls failing in test env without services
-        (engine.storage.duckdb as any).connect = jest.fn().mockResolvedValue(undefined);
-        (engine.storage.duckdb as any).close = jest.fn().mockResolvedValue(undefined);
         (engine.storage.chroma as any).init = jest.fn().mockResolvedValue(undefined);
 
         await engine.start();

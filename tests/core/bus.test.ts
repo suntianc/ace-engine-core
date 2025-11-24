@@ -1,7 +1,8 @@
+import { describe, test, beforeEach, expect } from '@jest/globals';
+import * as crypto from 'crypto';
 
 import { BusManager } from '../../src/core/bus';
 import { AceLayerID, SouthboundType, NorthboundType } from '../../src/types';
-import crypto from 'crypto';
 
 describe('BusManager & SecurityOverlay', () => {
     let bus: BusManager;
@@ -21,7 +22,7 @@ describe('BusManager & SecurityOverlay', () => {
             content: 'Please run rm -rf /',
         };
 
-        await expect(bus.publishSouthbound(packet)).rejects.toThrow('Security Violation');
+        await expect(bus.publishSouthbound(packet)).rejects.toThrow('Prohibited command');
     });
 
     test('should redact sensitive data in Northbound', async () => {

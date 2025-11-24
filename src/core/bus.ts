@@ -104,10 +104,10 @@ export class BusManager {
 
     private sbMiddlewares: BusMiddleware<SouthboundPacket>[] = [];
     private nbMiddlewares: BusMiddleware<NorthboundPacket>[] = [];
-    private storage?: { duckdb?: { logDirective: (packet: SouthboundPacket) => Promise<void>; logTelemetry: (packet: NorthboundPacket) => Promise<void> } };
+    private storage?: { logs?: { logDirective: (packet: SouthboundPacket) => Promise<void>; logTelemetry: (packet: NorthboundPacket) => Promise<void> } };
     private securityOverlay: SecurityOverlay;
 
-    constructor(storage?: { duckdb?: { logDirective: (packet: SouthboundPacket) => Promise<void>; logTelemetry: (packet: NorthboundPacket) => Promise<void> } }) {
+    constructor(storage?: { logs?: { logDirective: (packet: SouthboundPacket) => Promise<void>; logTelemetry: (packet: NorthboundPacket) => Promise<void> } }) {
         this.northbound = new EventEmitter();
         this.southbound = new EventEmitter();
         this.storage = storage;
@@ -140,9 +140,9 @@ export class BusManager {
         await next();
 
         // 3. Internal Logging (after middleware, before event dispatch)
-        if (this.storage?.duckdb) {
+        if (this.storage?.logs) {
             try {
-                await this.storage.duckdb.logDirective(packet);
+                await this.storage.logs.logDirective(packet);
             } catch (error) {
                 console.error('[BusManager] Failed to log directive:', error);
             }
@@ -166,9 +166,9 @@ export class BusManager {
         await next();
 
         // 3. Internal Logging (after middleware, before event dispatch)
-        if (this.storage?.duckdb) {
+        if (this.storage?.logs) {
             try {
-                await this.storage.duckdb.logTelemetry(packet);
+                await this.storage.logs.logTelemetry(packet);
             } catch (error) {
                 console.error('[BusManager] Failed to log telemetry:', error);
             }

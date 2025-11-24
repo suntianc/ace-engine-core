@@ -26,10 +26,15 @@
         "skipLibCheck": true,
         "forceConsistentCasingInFileNames": true,
         "resolveJsonModule": true,
-        "moduleResolution": "node"
+        "moduleResolution": "node",
+        "types": [
+            "jest",
+            "node"
+        ]
     },
     "include": [
-        "src/**/*"
+        "src/**/*",
+        "tests/**/*"
     ],
     "exclude": [
         "node_modules",

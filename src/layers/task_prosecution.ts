@@ -2,13 +2,18 @@
 import { BaseLayer, AceStorages } from './base';
 import { AceLayerID, SouthboundPacket, NorthboundPacket, AceTool, BaseLLM, SouthboundType, NorthboundType } from '../types';
 import { BusManager } from '../core/bus';
+import { ReflectionTriggerEngine } from '../core/reflection_trigger';
+import { ReflectionLevel } from '../types/reflection';
+import { SessionManager } from '../types/session';
 import crypto from 'crypto';
 
 export class TaskProsecutionLayer extends BaseLayer {
     private tools: Map<string, AceTool> = new Map();
+    private reflectionTrigger: ReflectionTriggerEngine;
 
-    constructor(bus: BusManager, storage: AceStorages, llm: BaseLLM) {
-        super(AceLayerID.TASK_PROSECUTION, bus, storage, llm);
+    constructor(bus: BusManager, storage: AceStorages, llm: BaseLLM, sessionManager?: SessionManager) {
+        super(AceLayerID.TASK_PROSECUTION, bus, storage, llm, sessionManager);
+        this.reflectionTrigger = new ReflectionTriggerEngine(storage);
     }
 
     registerTool(tool: AceTool) {
@@ -47,22 +52,75 @@ export class TaskProsecutionLayer extends BaseLayer {
                 return;
             }
 
-            // 2. Execute Tool
+            // 2. Generate Expected State (for prediction error detection)
+            const expectedState = await this.generateExpectedState(toolName, toolArgs);
+
+            // 3. Check Loop Detection (before execution)
+            const sessionId = packet.sessionId || 'default';
+            const loopDetection = await this.reflectionTrigger.checkLoopDetection(
+                sessionId,
+                { type: toolName, params: toolArgs, traceId: packet.traceId }
+            );
+
+            if (loopDetection) {
+                await this.handleReflectionTrigger(loopDetection, packet);
+                return;
+            }
+
+            // 4. Execute Tool
             try {
                 const result = await this.executeTool(toolName, toolArgs);
+                const actualState = this.extractActualState(result);
 
-                // 3. Report Success
+                // 5. Check Prediction Error
+                const predictionError = await this.reflectionTrigger.checkPredictionError(
+                    packet.traceId,
+                    expectedState,
+                    actualState,
+                    packet.sessionId
+                );
+
+                if (predictionError) {
+                    await this.handleReflectionTrigger(predictionError, packet);
+                    // 继续执行，但已触发反思
+                }
+
+                // 6. Check Completion
+                const completion = await this.reflectionTrigger.checkCompletion(
+                    packet.traceId,
+                    packet.parameters?.subgoalId || 'unknown',
+                    result,
+                    packet.sessionId
+                );
+
+                if (completion) {
+                    await this.handleReflectionTrigger(completion, packet);
+                }
+
+                // 7. Report Success
                 await this.bus.publishNorthbound({
                     id: crypto.randomUUID(),
                     timestamp: Date.now(),
                     traceId: packet.traceId,
+                    sessionId: packet.sessionId,
                     sourceLayer: this.id,
                     targetLayer: AceLayerID.COGNITIVE_CONTROL,
                     type: NorthboundType.RESULT,
                     summary: `Tool ${toolName} executed successfully`,
-                    data: { result }
+                    data: { result, expectedState, actualState }
                 });
             } catch (error: any) {
+                // 8. Check Feedback Trigger (negative feedback from error)
+                const feedback = await this.reflectionTrigger.checkFeedback(
+                    packet.traceId,
+                    { type: 'negative', content: error.message },
+                    packet.sessionId
+                );
+
+                if (feedback) {
+                    await this.handleReflectionTrigger(feedback, packet);
+                }
+
                 await this.reportFailure(packet, `Tool execution failed: ${error.message}`);
             }
         }
@@ -80,7 +138,7 @@ export class TaskProsecutionLayer extends BaseLayer {
         }
 
         // Log telemetry
-        await this.storage.duckdb.logTelemetry(packet);
+        await this.storage.logs.logTelemetry(packet);
     }
 
     private sandboxCheck(toolName: string, args: any): boolean {
@@ -147,11 +205,80 @@ export class TaskProsecutionLayer extends BaseLayer {
             id: crypto.randomUUID(),
             timestamp: Date.now(),
             traceId: packet.traceId,
+            sessionId: packet.sessionId,
             sourceLayer: this.id,
             targetLayer: AceLayerID.COGNITIVE_CONTROL,
             type: NorthboundType.FAILURE,
             summary: reason,
             data: { error: reason }
         });
+    }
+
+    /**
+     * 生成预期状态（用于预测误差检测）
+     */
+    private async generateExpectedState(toolName: string, _args: any): Promise<any> {
+        // 简化的预期状态生成
+        // 实际可以使用 LLM 或规则引擎生成更准确的预期状态
+        return {
+            status: 'success',
+            tool: toolName,
+            timestamp: Date.now()
+        };
+    }
+
+    /**
+     * 提取实际状态
+     */
+    private extractActualState(result: any): any {
+        return {
+            status: result.status || 'unknown',
+            data: result.data || result,
+            timestamp: Date.now()
+        };
+    }
+
+    /**
+     * 处理反思触发
+     */
+    private async handleReflectionTrigger(trigger: any, packet: SouthboundPacket) {
+        console.log(`[TaskProsecution] Reflection triggered: ${trigger.type} at level ${trigger.level}`);
+
+        // 根据反思级别决定处理方式
+        switch (trigger.level) {
+            case ReflectionLevel.LOCAL:
+                // 局部重试（不向上汇报）
+                console.log(`[TaskProsecution] Performing local reflection for ${trigger.type}`);
+                // 可以在这里实现局部重试逻辑
+                break;
+            case ReflectionLevel.STRATEGIC:
+                // 向上汇报到策略层
+                await this.bus.publishNorthbound({
+                    id: crypto.randomUUID(),
+                    timestamp: Date.now(),
+                    traceId: packet.traceId,
+                    sessionId: packet.sessionId,
+                    sourceLayer: this.id,
+                    targetLayer: AceLayerID.GLOBAL_STRATEGY,
+                    type: NorthboundType.FAILURE,
+                    summary: `Reflection triggered: ${trigger.type}`,
+                    data: { trigger, originalPacket: packet }
+                });
+                break;
+            case ReflectionLevel.ASPIRATIONAL:
+                // 向上汇报到愿景层
+                await this.bus.publishNorthbound({
+                    id: crypto.randomUUID(),
+                    timestamp: Date.now(),
+                    traceId: packet.traceId,
+                    sessionId: packet.sessionId,
+                    sourceLayer: this.id,
+                    targetLayer: AceLayerID.ASPIRATIONAL,
+                    type: NorthboundType.CRITICAL_FAILURE,
+                    summary: `Critical reflection triggered: ${trigger.type}`,
+                    data: { trigger, originalPacket: packet }
+                });
+                break;
+        }
     }
 }

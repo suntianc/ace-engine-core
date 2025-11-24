@@ -2,6 +2,7 @@
 import { BaseLayer, AceStorages } from './base';
 import { AceLayerID, SouthboundPacket, NorthboundPacket, BaseLLM, SouthboundType, NorthboundType } from '../types';
 import { BusManager } from '../core/bus';
+import { SessionManager } from '../types/session';
 import crypto from 'crypto';
 
 interface DAGTask {
@@ -20,8 +21,8 @@ interface DAGPlan {
 
 export class ExecutiveFunctionLayer extends BaseLayer {
 
-    constructor(bus: BusManager, storage: AceStorages, llm: BaseLLM) {
-        super(AceLayerID.EXECUTIVE_FUNCTION, bus, storage, llm);
+    constructor(bus: BusManager, storage: AceStorages, llm: BaseLLM, sessionManager?: SessionManager) {
+        super(AceLayerID.EXECUTIVE_FUNCTION, bus, storage, llm, sessionManager);
     }
 
     async handleSouthbound(packet: SouthboundPacket) {
@@ -76,7 +77,7 @@ export class ExecutiveFunctionLayer extends BaseLayer {
         }
 
         // Log telemetry
-        await this.storage.duckdb.logTelemetry(packet);
+        await this.storage.logs.logTelemetry(packet);
 
         // Handle Task Completion/Failure to trigger next task in DAG
         if (packet.sourceLayer === AceLayerID.COGNITIVE_CONTROL && (packet.type === NorthboundType.RESULT || packet.type === NorthboundType.FAILURE)) {

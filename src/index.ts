@@ -8,6 +8,9 @@ export { AceEngine } from './ace_engine';
 export * from './types';
 export { BusManager } from './core/bus';
 
+// 🆕 显式导出枚举（修复运行时 undefined 问题）
+export { AceLayerID, SouthboundType, NorthboundType } from './types';
+
 // Export Error Types
 export {
     AceError,
@@ -26,8 +29,32 @@ export type {
     AceMemoryConfig,
     AceLLMConfig,
     AceSchedulerConfig,
-    AceContextWindowConfig
+    AceContextWindowConfig,
+    AceReflectionTriggerConfig
 } from './types';
+
+// Export Reflection Trigger Types
+export {
+    ReflectionTriggerType,
+    ReflectionLevel
+} from './types/reflection';
+
+export type {
+    ReflectionTrigger,
+    ReflectionTriggerConfig,
+    StateComparison
+} from './types/reflection';
+
+// Export Reflection Trigger Engine
+export { ReflectionTriggerEngine } from './core/reflection_trigger';
+
+// Export Session Management Types
+export type {
+    SessionState,
+    SessionManager
+} from './types/session';
+
+export { SessionManagerImpl } from './core/session_manager';
 
 // Export Layers for extension if needed
 export { AspirationalLayer } from './layers/aspirational';

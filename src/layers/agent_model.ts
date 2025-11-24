@@ -2,14 +2,15 @@
 import { BaseLayer, AceStorages } from './base';
 import { AceLayerID, SouthboundPacket, NorthboundPacket, BaseLLM, SouthboundType, NorthboundType } from '../types';
 import { BusManager } from '../core/bus';
+import { SessionManager } from '../types/session';
 import crypto from 'crypto';
 
 export class AgentModelLayer extends BaseLayer {
     private static DEFAULT_RISK_THRESHOLD = 3; // Default threshold (1-5 scale)
     private riskThreshold: number;
 
-    constructor(bus: BusManager, storage: AceStorages, llm: BaseLLM, riskThreshold?: number) {
-        super(AceLayerID.AGENT_MODEL, bus, storage, llm);
+    constructor(bus: BusManager, storage: AceStorages, llm: BaseLLM, sessionManager?: SessionManager, riskThreshold?: number) {
+        super(AceLayerID.AGENT_MODEL, bus, storage, llm, sessionManager);
         // Validate risk threshold is in 1-5 range
         const threshold = riskThreshold ?? AgentModelLayer.DEFAULT_RISK_THRESHOLD;
         if (threshold < 1 || threshold > 5) {
@@ -120,7 +121,7 @@ export class AgentModelLayer extends BaseLayer {
         }
 
         // Log telemetry
-        await this.storage.duckdb.logTelemetry(packet);
+        await this.storage.logs.logTelemetry(packet);
     }
 
     private async validateStrategy(strategy: string, capabilities: any[]): Promise<{ valid: boolean; reason?: string; missingCapabilities?: string[]; refinedPlan?: string; usedTools?: string[]; riskLevel?: number }> {

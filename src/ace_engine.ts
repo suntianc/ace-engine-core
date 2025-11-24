@@ -1,11 +1,11 @@
-import { AceEngineConfig, BaseLLM, AceLayerID } from './types';
+import { AceEngineConfig, BaseLLM, AceLayerID, SouthboundType } from './types';
 import { BusManager } from './core/bus';
 import { SQLiteStorage } from './storage/sqlite';
-import { DuckDBStorage } from './storage/duckdb';
 import { ChromaStorage } from './storage/chroma';
 import { MemoryStorage } from './storage/memory';
 import { BaseLayer, AceStorages } from './layers/base';
 import { ConfigurationError, StorageError } from './utils/errors';
+import crypto from 'crypto';
 
 import { AspirationalLayer } from './layers/aspirational';
 import { GlobalStrategyLayer } from './layers/global_strategy';
@@ -14,10 +14,13 @@ import { ExecutiveFunctionLayer } from './layers/executive_function';
 import { CognitiveControlLayer, FocusState } from './layers/cognitive_control';
 import { TaskProsecutionLayer } from './layers/task_prosecution';
 import { CognitiveScheduler } from './core/scheduler';
+import { SessionManagerImpl } from './core/session_manager';
+import { SessionManager, SessionState } from './types/session';
 
 export class AceEngine {
     public bus: BusManager;
     public storage: AceStorages;
+    public sessionManager: SessionManager;
     private config: AceEngineConfig;
     private layers: BaseLayer[];
     private scheduler: CognitiveScheduler;
@@ -30,17 +33,20 @@ export class AceEngine {
         // Validate configuration before initialization
         this.validateConfig(config);
         this.config = config;
-        
+
         // Initialize Storage first for BusManager dependency injection
         this.storage = {
             sqlite: new SQLiteStorage(config.storage.sqlitePath),
-            duckdb: new DuckDBStorage(),
+            logs: new SQLiteStorage(config.storage.logsPath),
             chroma: new ChromaStorage(config.memory.endpoint, config.memory.collectionPrefix),
             memory: new MemoryStorage(config.cache, config.contextWindow?.maxLength)
         };
-        
+
         // Initialize BusManager with storage dependency for internal logging
-        this.bus = new BusManager({ duckdb: this.storage.duckdb });
+        this.bus = new BusManager({ logs: this.storage.logs });
+
+        // Initialize Session Manager
+        this.sessionManager = new SessionManagerImpl(this.storage);
 
         // Storage already initialized above for BusManager dependency injection
 
@@ -56,11 +62,10 @@ export class AceEngine {
             }
         });
 
-        // Initialize Scheduler with optional configuration
+        // Initialize Scheduler (only heartbeat, reflection is trigger-based)
         this.scheduler = new CognitiveScheduler(
             this.bus,
-            config.scheduler?.heartbeatIntervalMs,
-            config.scheduler?.reflectionIntervalMs
+            config.scheduler?.heartbeatIntervalMs
         );
 
         // Initialize Layers
@@ -159,13 +164,14 @@ export class AceEngine {
             return modelInstanceCache.get(modelName)!;
         };
 
+        // Initialize Layers with SessionManager
         this.layers = [
-            new AspirationalLayer(this.bus, this.storage, getLLM(AceLayerID.ASPIRATIONAL)),
-            new GlobalStrategyLayer(this.bus, this.storage, getLLM(AceLayerID.GLOBAL_STRATEGY)),
-            new AgentModelLayer(this.bus, this.storage, getLLM(AceLayerID.AGENT_MODEL)),
-            new ExecutiveFunctionLayer(this.bus, this.storage, getLLM(AceLayerID.EXECUTIVE_FUNCTION)),
-            new CognitiveControlLayer(this.bus, this.storage, getLLM(AceLayerID.COGNITIVE_CONTROL)),
-            new TaskProsecutionLayer(this.bus, this.storage, getLLM(AceLayerID.TASK_PROSECUTION)),
+            new AspirationalLayer(this.bus, this.storage, getLLM(AceLayerID.ASPIRATIONAL), this.sessionManager),
+            new GlobalStrategyLayer(this.bus, this.storage, getLLM(AceLayerID.GLOBAL_STRATEGY), this.sessionManager),
+            new AgentModelLayer(this.bus, this.storage, getLLM(AceLayerID.AGENT_MODEL), this.sessionManager, undefined),
+            new ExecutiveFunctionLayer(this.bus, this.storage, getLLM(AceLayerID.EXECUTIVE_FUNCTION), this.sessionManager),
+            new CognitiveControlLayer(this.bus, this.storage, getLLM(AceLayerID.COGNITIVE_CONTROL), this.sessionManager),
+            new TaskProsecutionLayer(this.bus, this.storage, getLLM(AceLayerID.TASK_PROSECUTION), this.sessionManager),
         ];
 
         // Note: Logging is now handled internally by BusManager
@@ -183,8 +189,8 @@ export class AceEngine {
         if (!config.storage.sqlitePath || config.storage.sqlitePath.trim() === '') {
             throw new ConfigurationError('storage.sqlitePath is required');
         }
-        if (!config.storage.duckdbPath || config.storage.duckdbPath.trim() === '') {
-            throw new ConfigurationError('storage.duckdbPath is required');
+        if (!config.storage.logsPath || config.storage.logsPath.trim() === '') {
+            throw new ConfigurationError('storage.logsPath is required');
         }
         if (!config.memory.endpoint || config.memory.endpoint.trim() === '') {
             throw new ConfigurationError('memory.endpoint is required');
@@ -212,8 +218,8 @@ export class AceEngine {
         }
 
         try {
-            if (this.storage?.duckdb) {
-                await this.storage.duckdb.close();
+            if (this.storage?.logs) {
+                this.storage.logs.close();
             }
         } catch (error) {
             errors.push(error as Error);
@@ -250,14 +256,13 @@ export class AceEngine {
 
     async start() {
         try {
-            await this.storage.duckdb.connect(this.config.storage.duckdbPath);
             await this.storage.chroma.init();
             this.scheduler.start();
             console.log(`ACE Engine ${this.config.agentId} started.`);
         } catch (error) {
             // Cleanup any resources that were initialized
             await this.cleanup();
-            
+
             // Throw appropriate error type
             if (error instanceof ConfigurationError || error instanceof StorageError) {
                 throw error;
@@ -276,7 +281,7 @@ export class AceEngine {
         }
 
         try {
-            await this.storage.duckdb.close();
+            this.storage.logs.close();
         } catch (error) {
             errors.push(error as Error);
         }
@@ -351,5 +356,113 @@ export class AceEngine {
     getCognitiveControlState(): FocusState | null {
         const layer = this.layers.find(l => l.id === AceLayerID.COGNITIVE_CONTROL) as CognitiveControlLayer;
         return layer?.getFocusState() || null;
+    }
+
+    // ========== 会话管理方法 ==========
+
+    /**
+     * 创建新会话
+     * @param sessionId 会话ID
+     * @param metadata 可选的会话元数据
+     */
+    async createSession(sessionId: string, metadata?: Record<string, any>): Promise<void> {
+        await this.sessionManager.createSession(sessionId, metadata);
+    }
+
+    /**
+     * 获取会话状态
+     * @param sessionId 会话ID
+     * @returns 会话状态或 null
+     */
+    async getSessionState(sessionId: string): Promise<SessionState | null> {
+        return await this.sessionManager.getSession(sessionId);
+    }
+
+    /**
+     * 更新会话活动时间
+     * @param sessionId 会话ID
+     */
+    async updateSessionActivity(sessionId: string): Promise<void> {
+        await this.sessionManager.updateSessionActivity(sessionId);
+    }
+
+    /**
+     * 获取活动会话列表
+     * @param cutoffTime 可选的时间截止点（毫秒时间戳），默认是1小时前；-1表示获取所有未归档会话
+     * @returns 活动会话ID列表
+     */
+    async getActiveSessions(cutoffTime?: number): Promise<string[]> {
+        return await this.sessionManager.getActiveSessions(cutoffTime);
+    }
+
+    /**
+     * 获取所有未归档会话列表
+     * @returns 所有未归档会话ID列表
+     */
+    async getAllUnarchivedSessions(): Promise<string[]> {
+        return await this.sessionManager.getAllUnarchivedSessions();
+    }
+
+    /**
+     * 归档会话
+     * @param sessionId 会话ID
+     */
+    async archiveSession(sessionId: string): Promise<void> {
+        await this.sessionManager.archiveSession(sessionId);
+    }
+
+    /**
+     * 更新会话元数据（合并方式，不会覆盖现有字段）
+     * @param sessionId 会话ID
+     * @param metadata 要更新的元数据字段
+     */
+    async updateSessionMetadata(sessionId: string, metadata: Record<string, any>): Promise<void> {
+        await this.sessionManager.updateSessionMetadata(sessionId, metadata);
+    }
+
+    /**
+     * 查询会话的遥测日志
+     * @param sessionId 会话ID
+     * @param limit 限制返回数量，默认100
+     * @returns 遥测日志列表
+     */
+    async getTelemetryBySession(sessionId: string, limit: number = 100): Promise<any[]> {
+        return await this.storage.logs.getTelemetryBySession(sessionId, limit);
+    }
+
+    /**
+     * 查询会话的指令日志
+     * @param sessionId 会话ID
+     * @param limit 限制返回数量，默认100
+     * @returns 指令日志列表
+     */
+    async getDirectivesBySession(sessionId: string, limit: number = 100): Promise<any[]> {
+        return await this.storage.logs.getDirectivesBySession(sessionId, limit);
+    }
+
+    /**
+     * 发布带会话ID的消息（便捷方法）
+     * @param sessionId 会话ID
+     * @param content 消息内容
+     * @param targetLayer 目标层级
+     */
+    async publishWithSession(
+        sessionId: string,
+        content: string,
+        targetLayer: AceLayerID
+    ): Promise<void> {
+        // 更新会话活动时间
+        await this.updateSessionActivity(sessionId);
+
+        await this.bus.publishSouthbound({
+            id: crypto.randomUUID(),
+            timestamp: Date.now(),
+            traceId: crypto.randomUUID(),
+            sessionId: sessionId,
+            sourceLayer: AceLayerID.ASPIRATIONAL,
+            targetLayer: targetLayer,
+            type: SouthboundType.IMPERATIVE,
+            content: content
+        });
     }
 }
